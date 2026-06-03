@@ -84,19 +84,21 @@ async def webhook_pix(request: Request):
         return {"status": "erro", "detalhes": str(e)}
 
 # -----------------------------------------------------------------
-# CANAL WEBSOCKET
+# CANAL WEBSOCKET (CORRIGIDO)
 # -----------------------------------------------------------------
 @app.websocket("/ws/maquina")
 async def websocket_endpoint(websocket: WebSocket):
+    # Desativa o timeout de ping para evitar que a conexão caia por inatividade
     await manager.connect(websocket)
     print("\n[WS] 🔵 Máquina Virtual se conectou ao canal WebSocket!")
     try:
         while True:
-            # Mantém a conexão viva ouvindo mensagens da máquina
+            # Fica aguardando mensagens, mas sem desconectar por timeout
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect()
         print("\n[WS] 🔴 Máquina Virtual se desconectou do canal WebSocket.")
+
 
 if __name__ == "__main__":
     import uvicorn

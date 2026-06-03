@@ -1,10 +1,13 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from pydantic import BaseModel
-import asyncio
+import uvicorn
 
 app = FastAPI()
 
-# Armazena a conexão ativa da máquina virtual
+# Configuração do Valor Fixo da Máquina
+VALOR_FIXO = "5.00"  # Altere aqui para o valor que desejar (ex: "2.50", "10.00")
+
+# Gerenciador da conexão WebSocket com a máquina
 class ConnectionManager:
     def __init__(self):
         self.active_connection: WebSocket = None
@@ -22,72 +25,64 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# Modelo para simular os dados que o banco envia no Webhook
+# Modelo de dados para simular o Webhook do Banco
 class WebhookData(BaseModel):
     pix_id: str
-    status: str  # ex: "CONCLUIDO"
+    status: str  # Deve ser "CONCLUIDO" para liberar
 
-# -----------------------------------------------------------------
-# ROTAS DA API
-# -----------------------------------------------------------------
+# --- ROTAS HTTP ---
 
-@app.get("/pedir-pix/{produto_id}")
-async def pedir_pix(produto_id: int):
+@app.get("/pedir-pix")
+async def pedir_pix():
     """
-    A máquina (ou o cliente) chama essa rota para solicitar o Pix de um produto.
+    Rota chamada pela máquina para gerar o Pix de valor fixo.
     """
-    # Aqui na vida real você chamaria a API do Mercado Pago/Efí.
-    # Vamos simular um código Pix Copia e Cola estático.
-    valores = {1: "5.00", 2: "7.00"}
+    # Linha do Pix Copia e Cola simulada com o valor fixo embutido
+    pix_copia_e_cola = f"00020126360014BR.GOV.BCB.PIX0114+55119999999995204000053039865404{VALOR_FIXO}5802BR5925VendingMachine6009SaoPaulo62070503***6304ABCD"
     
-    if produto_id not in valores:
-        raise HTTPException(status_code=404, detail="Produto não encontrado")
+    # ID padrão que usaremos para validar o pagamento no teste
+    pix_id = "pix_fixo_demonstracao"
     
-    valor = valores[produto_id]
-    pix_copia_e_cola = f"00020126360014BR.GOV.BCB.PIX0114+55119999999995204000053039865404{valor}5802BR5925VendingMachine6009SaoPaulo62070503***6304ABCD"
-    
-    print(f"[SERVIDOR] Pix de R$ {valor} gerado para o Produto {produto_id}")
-    return {"status": "pendente", "pix_code": pix_copia_e_cola, "pix_id": f"id_simulado_{produto_id}"}
-
+    print(f"\n[SERVIDOR] Novo Pix solicitado! Valor: R$ {VALOR_FIXO}")
+    return {
+        "status": "pendente",
+        "pix_code": pix_copia_e_cola,
+        "pix_id": pix_id
+    }
 
 @app.post("/webhook-pix")
 async def webhook_pix(data: WebhookData):
     """
-    O Banco chama essa rota quando o Pix é pago.
+    Rota que simula o Banco avisando que o Pix foi pago.
     """
-    print(f"[WEBHOOK] Banco avisou: Pix {data.pix_id} mudou para status: {data.status}")
+    print(f"\n[WEBHOOK] Notificação recebida -> ID: {data.pix_id} | Status: {data.status}")
     
-    if data.status == "CONCLUIDO":
-        # Avisa a máquina virtual via WebSocket para liberar o produto
+    if data.status == "CONCLUIDO" and data.pix_id == "pix_fixo_demonstracao":
         if manager.active_connection:
+            # Envia o comando em tempo real para a máquina liberar o produto
             await manager.send_message("LIBERAR_PRODUTO")
+            print("[SERVIDOR] Comando 'LIBERAR_PRODUTO' enviado para a máquina.")
             return {"status": "sucesso", "mensagem": "Máquina notificada"}
         else:
-            return {"status": "erro", "mensagem": "Máquina offline no momento"}
+            print("[SERVIDOR] Erro: A máquina está desconectada do WebSocket.")
+            return {"status": "erro", "mensagem": "Máquina offline"}
             
-    return {"status": "ignorado"}
+    return {"status": "ignorado", "mensagem": "Status inválido ou ID incorreto"}
 
-# -----------------------------------------------------------------
-# CANAL WEBSOCKET (IoT)
-# -----------------------------------------------------------------
+# --- CANAL WEBSOCKET ---
 
 @app.websocket("/ws/maquina")
 async def websocket_endpoint(websocket: WebSocket):
-    """
-    Mantém o canal de comunicação aberto e em tempo real com a máquina.
-    """
     await manager.connect(websocket)
-    print("[SERVIDOR] Máquina Virtual se conectou via WebSocket!")
+    print("\n[SERVIDOR] 🤖 Máquina Virtual conectada ao canal WebSocket!")
     try:
         while True:
-            # Fica ouvindo se a máquina mandar alguma mensagem voluntária
-            data = await websocket.receive_text()
-            print(f"[SERVIDOR] Mensagem recebida da máquina: {data}")
+            # Mantém a conexão aberta escutando a máquina (se necessário)
+            await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect()
-        print("[SERVIDOR] Máquina Virtual se desconectou.")
+        print("\n[SERVIDOR] ❌ Máquina Virtual se desconectou.")
 
 if __name__ == "__main__":
-    import uvicorn
-    # Roda o servidor localmente na porta 8000
+    # Inicializa o servidor na porta 8000
     uvicorn.run(app, host="127.0.0.1", port=8000)

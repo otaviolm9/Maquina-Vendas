@@ -1,65 +1,81 @@
 import asyncio
 import websockets
 import requests
+import sys
 
 SERVIDOR_URL = "http://127.0.0.1:8000"
 WS_URL = "ws://127.0.0.1:8000/ws/maquina"
 
 async def escutar_servidor(websocket):
-    """Fica escutando o servidor em segundo plano para ver se o pagamento foi aprovado."""
+    """
+    Fica escutando o servidor em segundo plano via WebSocket.
+    Se o servidor mandar 'LIBERAR_PRODUTO', a máquina simula a entrega física.
+    """
     try:
         async for mensagem in websocket:
             if mensagem == "LIBERAR_PRODUTO":
-                print("\n" + "="*40)
-                print("[MÁQUINA - HARDWARE] 🟢 SINAL RECEBIDO: PAGAMENTO CONFIRMADO!")
-                print("[MÁQUINA - MOTOR] Girando a mola/motor... 🕒")
-                await asyncio.sleep(2) # Simula o tempo do motor girando
-                print("[MÁQUINA - SUCESSO] Produto entregue! Obrigado pela compra.")
-                print("="*40 + "\n")
-                print("Escolha o produto:\n1 - Refrigerante (R$ 5,00)\n2 - Salgadinho (R$ 7,00)\nDigite o número: ", end="", flush=True)
+                print("\n" + "="*50)
+                print("🟢 [MÁQUINA] SINAL RECEBIDO: PAGAMENTO APROVADO!")
+                print("⚙️ [MOTOR] Acionando motor de liberação do produto... 🕒")
+                await asyncio.sleep(2.5)  # Simula o tempo do motor girando fisicamente
+                print("📦 [SUCESSO] Produto liberado na gaveta! Obrigado.")
+                print("="*50 + "\n")
+                
+                # Reseta o menu visual na tela do usuário
+                print("=== VENDING MACHINE (VALOR FIXO: R$ 5,00) ===")
+                print("1 - Comprar Produto")
+                print("Digite 1 para iniciar ou 'sair': ", end="", flush=True)
     except websockets.exceptions.ConnectionClosed:
-        print("[MÁQUINA] Conexão com o servidor perdida.")
+        print("\n[MÁQUINA] Erro: Conexão WebSocket com o servidor fechada.")
 
 async def fluxo_maquina():
-    # Abre a conexão em tempo real (WebSocket) com o servidor
-    async with websockets.connect(WS_URL) as websocket:
-        print("[MÁQUINA] Conectado ao servidor com sucesso!")
-        
-        # Inicia a tarefa que fica ouvindo o servidor em segundo plano
-        asyncio.create_task(escutar_servidor(websocket))
-        
-        while True:
-            print("\n=== VENDING MACHINE SIMULATOR ===")
-            print("1 - Refrigerante (R$ 5,00)")
-            print("2 - Salgadinho (R$ 7,00)")
-            opcao = input("Digite o número do produto desejado (ou 'sair'): ")
+    print("[MÁQUINA] Tentando conectar ao servidor...")
+    try:
+        async with websockets.connect(WS_URL) as websocket:
+            print("[MÁQUINA] Conectado ao servidor via WebSocket com sucesso!")
             
-            if opcao.lower() == 'sair':
-                break
-            if opcao not in ['1', '2']:
-                print("Opção inválida.")
-                continue
+            # Cria a tarefa em segundo plano para ficar ouvindo o servidor
+            asyncio.create_task(escutar_servidor(websocket))
+            
+            while True:
+                print("\n=== VENDING MACHINE (VALOR FIXO: R$ 5,00) ===")
+                print("1 - Comprar Produto")
+                opcao = input("Digite 1 para iniciar ou 'sair': ")
                 
-            # 1. Solicita o Pix para o backend via HTTP comum
-            print(f"[MÁQUINA] Solicitando Pix para o produto {opcao} ao servidor...")
-            try:
-                resposta = requests.get(f"{SERVIDOR_URL}/pedir-pix/{opcao}").json()
-                pix_copia_e_cola = resposta["pix_code"]
-                pix_id = resposta["pix_id"]
-                
-                print("\n" + "-"*30)
-                print(f"👉 [TELA DA MÁQUINA] Copie o código abaixo para pagar:")
-                print(f"\n{pix_copia_e_cola}\n")
-                print(f"ID do seu Pix para simulação: {pix_id}")
-                print("-"*30)
-                print("[MÁQUINA] Aguardando confirmação de pagamento do banco...\n")
-                
-                # Deixa um pequeno delay para não atropelar o input do terminal
-                await asyncio.sleep(1)
-                
-            except Exception as e:
-                print(f"[MÁQUINA] Erro ao conectar ao servidor: {e}")
+                if opcao.lower() == 'sair':
+                    print("[MÁQUINA] Desligando simulador...")
+                    break
+                if opcao != '1':
+                    print("[MÁQUINA] Opção inválida.")
+                    continue
+                    
+                print("\n[MÁQUINA] Solicitando código Pix ao servidor backend...")
+                try:
+                    # Faz a requisição HTTP para criar o Pix
+                    resposta = requests.get(f"{SERVIDOR_URL}/pedir-pix").json()
+                    pix_code = resposta["pix_code"]
+                    pix_id = resposta["pix_id"]
+                    
+                    print("\n" + "-"*40)
+                    print("📱 [TELA DA MÁQUINA] PIX COPIA E COLA GENERADO:")
+                    print(f"\n{pix_code}\n")
+                    print(f"ID desta transação para o teste: {pix_id}")
+                    print("-"*40)
+                    print("[MÁQUINA] Aguardando confirmação do banco... Pode simular o pagamento agora.\n")
+                    
+                    # Pequena pausa para sincronizar o terminal
+                    await asyncio.sleep(1)
+                    
+                except Exception as e:
+                    print(f"[MÁQUINA] Erro ao comunicar com a API do servidor: {e}")
+                    
+    except Exception as e:
+        print(f"[MÁQUINA] Não foi possível conectar ao servidor: {e}")
+        print("[MÁQUINA] Certifique-se de que o 'servidor.py' está rodando primeiro.")
 
 if __name__ == "__main__":
-    # Inicia o loop assíncrono da máquina
-    asyncio.run(fluxo_maquina())
+    # Inicia o loop de eventos assíncronos do simulador da máquina
+    try:
+        asyncio.run(fluxo_maquina())
+    except KeyboardInterrupt:
+        print("\n[MÁQUINA] Encerrada pelo usuário.")
